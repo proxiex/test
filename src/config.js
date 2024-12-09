@@ -1,0 +1,20 @@
+// eventTypes.js
+export const socketEvents = {
+  CREATE_SESSION: 'createSession',
+  JOIN: 'join',
+  AGENT_JOIN_SESSION: 'agentJoinSession',
+  MESSAGE_SENT: 'messageSent',
+  NEW_MESSAGE: 'newMessage',
+  MESSAGE_READ: 'messageRead',
+  TYPING: 'typing',
+  USER_ONLINE: 'userOnline',
+  USER_OFFLINE: 'userOffline',
+  SESSION_CREATED: 'sessionCreated',
+  ALL_ACTIVE_SESSIONS: 'allActiveSessions',
+  ALL_ONLINE_USERS: 'allOnlineUsers',
+  USER_TYPING: 'userTyping',
+  NEW_MESSAGE: 'newMessage',
+  LOAD_TICKET: 'loadTicket',
+  AGENT_STATUS: 'agentStatus',
+  AGENT_ASSIGNED_TO_SESSION: 'agentAssignedToSession',
+};
