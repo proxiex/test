@@ -65,7 +65,7 @@ async function connectToMongoDB() {
 
 connectToMongoDB();
 
-
+app.get('/', (req, res) => new ResponseLib(req, res).status(200).json({ message: 'OK!' }));
 
 try {
   app.use('/api/v1/', routes);
