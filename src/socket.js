@@ -7,9 +7,52 @@ import Agent from './models/agent';
 import User from './models/user';
 import RepairTicket from './models/repair';
 import ServiceCenter from './models/serviceCenter';
+import LocationTrail from './models/locationTrail';
+
 import ChatSession from './models/chat';
 import { v4 as uuid } from 'uuid'; // Use ES6 import for uuid
 
+const socketAuth = async (socket, next) => {
+  const token = socket.handshake.headers.token;
+  const deviceId = socket.handshake.headers.deviceid;
+  const role = socket.handshake.headers.role;
+
+  if (!token || !deviceId || !role) {
+    return next(new Error('Access denied. Token, Device-Id, or Role not provided.'));
+  }
+
+  try {
+    const tokenWithoutBearer = token.startsWith('Bearer ') ? token.slice(7) : token;
+    const decoded = jwt.verify(tokenWithoutBearer, process.env.JWT_SECRET);
+
+    const roleModelMap = {
+      admin: Agent,
+      user: User,
+      merchant: Merchant,
+      agent: Agent,
+      support: Agent,
+      deliveryAgent: Agent,
+      engineer: Engineer,
+      servicecenter: ServiceCenter,
+    };
+
+    const Model = roleModelMap[role.toLowerCase()];
+    if (!Model) {
+      return next(new Error('Access denied. Invalid role.'));
+    }
+
+    const user = await Model.findById(decoded.userId);
+    if (!user) return next(new Error('User not found.'));
+    if (user.status === 'deactivated') return next(new Error('User account deactivated.'));
+    if (user.deviceId !== deviceId) return next(new Error('Invalid Device-Id.'));
+
+    // Attach user details to the socket object
+    socket.userDetails = { ...user, role, deviceId, isAgent: ['admin', 'agent', 'support'].includes(role.toLowerCase()) };
+    return next();
+  } catch (err) {
+    return next(new Error('Access denied. Invalid token.'));
+  }
+}
 export const listen = async (server) => {
   const io = new Server(server, {
     cors: {
@@ -19,50 +62,58 @@ export const listen = async (server) => {
   });
 
   // Middleware for authentication and user verification
-  io.use(async (socket, next) => {
-    const token = socket.handshake.headers.token;
-    const deviceId = socket.handshake.headers.deviceid;
-    const role = socket.handshake.headers.role;
-
-    if (!token || !deviceId || !role) {
-      return next(new Error('Access denied. Token, Device-Id, or Role not provided.'));
-    }
-
-    try {
-      const tokenWithoutBearer = token.startsWith('Bearer ') ? token.slice(7) : token;
-      const decoded = jwt.verify(tokenWithoutBearer, process.env.JWT_SECRET);
-
-      const roleModelMap = {
-        admin: Agent,
-        user: User,
-        merchant: Merchant,
-        agent: Agent,
-        support: Agent,
-        deliveryAgent: Agent,
-        engineer: Engineer,
-        servicecenter: ServiceCenter,
-      };
-
-      const Model = roleModelMap[role.toLowerCase()];
-      if (!Model) {
-        return next(new Error('Access denied. Invalid role.'));
-      }
-
-      const user = await Model.findById(decoded.userId);
-      if (!user) return next(new Error('User not found.'));
-      if (user.status === 'deactivated') return next(new Error('User account deactivated.'));
-      if (user.deviceId !== deviceId) return next(new Error('Invalid Device-Id.'));
-
-      // Attach user details to the socket object
-      socket.userDetails = { ...user, role, deviceId, isAgent: ['admin', 'agent', 'support'].includes(role.toLowerCase()) };
-      return next();
-    } catch (err) {
-      return next(new Error('Access denied. Invalid token.'));
-    }
-  });
+  io.use(socketAuth);
 
   let onlineUsers = []; // Track online users
   let activeSessions = []; // Track active chat sessions
+
+  const locationNamespace = io.of('/location');
+  locationNamespace.use(socketAuth);
+
+  locationNamespace.on('connection', (socket) => {
+    console.log('New client connected to /location namespace:', socket.id);
+
+    // Listener for location updates
+    socket.on('location-trail', async (data) => {
+      try {
+        const { userId, longitude, latitude } = data;
+
+        if (!userId || !longitude || !latitude) {
+          console.error('Invalid data received for location trail:', data);
+          socket.emit('location-trail-ack', {
+            status: 'error',
+            message: 'Invalid data format. All fields are required.',
+          });
+          return;
+        }
+
+        // Save location data to MongoDB
+        const locationTrail = new LocationTrail({
+          userId,
+          longitude,
+          latitude,
+          timestamp: new Date().toISOString(),
+        });
+
+        await locationTrail.save();
+        console.log('Location trail saved:', locationTrail);
+
+        // Send acknowledgment back to the client
+        socket.emit('location-trail-ack', { status: 'success' });
+      } catch (err) {
+        console.error('Error saving location trail:', err);
+        socket.emit('location-trail-ack', {
+          status: 'error',
+          message: 'Failed to save location trail.',
+        });
+      }
+    });
+
+    // Handle client disconnection
+    socket.on('disconnect', () => {
+      console.log('Client disconnected from /location namespace:', socket.id);
+    });
+  });
 
   io.on('connection', (socket) => {
     const userDetails = socket.userDetails;

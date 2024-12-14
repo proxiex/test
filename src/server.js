@@ -121,6 +121,7 @@ app.use((err, req, res, next) => {
 });
 
 socketListen(server);
+
 server.listen(process.env.PORT || 3800, () => {
   LoggerLib.log(`Server started on port ${server.address().port}`);
 });
